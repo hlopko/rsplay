@@ -1,6 +1,6 @@
-#![feature(unsafe_cell_get_mut)]
-use std::{cell::UnsafeCell, mem};
+use std::mem;
 
+use crate::unsafe_cell::UnsafeCell;
 pub struct Cell<T> {
     value: UnsafeCell<T>,
 }
@@ -8,7 +8,7 @@ pub struct Cell<T> {
 impl<T> Cell<T> {
     pub fn new(value: T) -> Self {
         Self {
-            value: value.into(),
+            value: UnsafeCell::new(value),
         }
     }
 
@@ -39,13 +39,13 @@ impl<T> Cell<T> {
         self.replace(Default::default())
     }
 
-    pub fn replace(&self, newval: T) -> T {
+    pub fn replace(&self, val: T) -> T {
         mem::replace(
             unsafe {
                 // SAFETY: Cell is not Sync, so there are no other concurrent mutations possible.
                 &mut *self.value.get()
             },
-            newval,
+            val,
         )
     }
 
