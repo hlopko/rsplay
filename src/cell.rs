@@ -1,6 +1,7 @@
 use std::mem;
 
 use crate::unsafe_cell::UnsafeCell;
+
 pub struct Cell<T> {
     value: UnsafeCell<T>,
 }
@@ -16,7 +17,7 @@ impl<T> Cell<T> {
         unsafe {
             // SAFETY: There are no other references to the UnsafeCell,
             // it's safe to get a mutable reference (it will be unique) and mutate through it.
-            let mut cell = &mut *self.value.get();
+            let cell = &mut *self.value.get();
             *cell = value;
         }
     }
@@ -91,7 +92,7 @@ mod tests {
     }
 
     #[test]
-    fn shared_cell_can_replace() {        
+    fn shared_cell_can_replace() {
         let cell = Cell::new(42);
         let (p1, p2) = (&cell, &cell);
 
@@ -111,9 +112,9 @@ mod tests {
     }
 
     #[test]
-    fn owned_cell_can_implode_with_into_inner() {        
+    fn owned_cell_can_implode_with_into_inner() {
         let cell = Cell::new(42);
-       
+
         assert_eq!(cell.into_inner(), 42);
     }
 }
