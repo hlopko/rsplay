@@ -1,7 +1,7 @@
 pub mod cell;
-pub mod unsafe_cell;
 pub mod ref_cell;
 pub mod refs;
+pub mod unsafe_cell;
 
 fn main() {
     println!("Hello, world!");

@@ -1,16 +1,12 @@
 use std::fmt::{self, Debug, Display};
 
-use crate::{cell::Cell, unsafe_cell::UnsafeCell};
+use crate::{cell::Cell, refs::RefMut};
+use crate::refs::{Ref, State};
+use crate::unsafe_cell::UnsafeCell;
 
 pub struct RefCell<T> {
     value: UnsafeCell<T>,
     state: Cell<State>,
-}
-#[derive(Clone, Copy)]
-enum State {
-    Unused,
-    HasReaders(usize),
-    HasWriter,
 }
 
 /// An error returned by [`RefCell::try_borrow`].
@@ -59,38 +55,38 @@ impl<T> RefCell<T> {
     //     self.value.replace(newval)
     // }
 
-    pub fn borrow(&self) -> &T {
+    pub fn borrow(&self) -> Ref<T> {
         self.try_borrow()
             .expect("Value borrowed mutably, can't borrow.")
     }
 
-    pub fn try_borrow(&self) -> Result<&T, BorrowError> {
+    pub fn try_borrow(&self) -> Result<Ref<T>, BorrowError> {
         match self.state.get() {
             State::Unused => {
                 self.state.set(State::HasReaders(1));
                 Ok(unsafe {
                     // SAFETY: This is safe because we have no pending borrows.
-                    &*self.value.get()
+                    Ref::new(&self.state, &*self.value.get())
                 })
             }
             State::HasReaders(n) => {
                 self.state.set(State::HasReaders(n + 1));
                 Ok(unsafe {
                     // SAFETY: This is safe because we have only have readers.
-                    &*self.value.get()
+                    Ref::new(&self.state, &*self.value.get())
                 })
             }
             State::HasWriter => Err(BorrowError {}),
         }
     }
 
-    pub fn try_borrow_mut(&self) -> Result<&mut T, BorrowMutError> {
+    pub fn try_borrow_mut(&self) -> Result<RefMut<T>, BorrowMutError> {
         match self.state.get() {
             State::Unused => {
                 self.state.set(State::HasWriter);
                 Ok(unsafe {
                     // SAFETY: This is safe because we have no pending borrows.
-                    &mut *self.value.get()
+                    RefMut::new(&self.state, &mut *self.value.get())
                 })
             }
             State::HasReaders(_) => Err(BorrowMutError {}),
@@ -98,7 +94,7 @@ impl<T> RefCell<T> {
         }
     }
 
-    pub fn borrow_mut(&self) -> &mut T {
+    pub fn borrow_mut(&self) -> RefMut<T> {
         self.try_borrow_mut().expect("Value already borrowed")
     }
 }
@@ -109,7 +105,7 @@ where
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.try_borrow() {
-            Ok(borrow) => f.debug_struct("RefCell").field("value", borrow).finish(),
+            Ok(borrow) => f.debug_struct("RefCell").field("value", &borrow).finish(),
             Err(_) => {
                 struct Placeholder;
 
@@ -152,8 +148,8 @@ mod tests {
         let b1 = cell.borrow();
         let b2 = cell.borrow();
 
-        assert_eq!(b1, &42);
-        assert_eq!(b2, &42);
+        assert_eq!(*b1, 42);
+        assert_eq!(*b2, 42);
     }
     #[test]
     fn test_try_borrow_ok_for_unused() {
@@ -171,7 +167,7 @@ mod tests {
     fn test_try_borrow_is_err_when_writers() {
         let cell = RefCell::new(42);
 
-        let _ = cell.borrow_mut();
+        let _mut_borrow = cell.borrow_mut();
         assert!(cell.try_borrow().is_err());
     }
 
@@ -181,9 +177,9 @@ mod tests {
         assert!(cell.try_borrow_mut().is_ok());
     }
     #[test]
-    fn test_try_borrow_is_err_when_readers() {
+    fn test_try_borrow_mut_is_err_when_readers() {
         let cell = RefCell::new(42);
-        let _ = cell.borrow();
+        let _borrow = cell.borrow();
         assert!(cell.try_borrow_mut().is_err());
     }
 
@@ -191,7 +187,7 @@ mod tests {
     fn test_try_borrow_mut_is_err_when_writers() {
         let cell = RefCell::new(42);
 
-        let _ = cell.borrow_mut();
+        let _mut_borrow = cell.borrow_mut();
         assert!(cell.try_borrow_mut().is_err());
     }
 
@@ -222,14 +218,14 @@ mod tests {
     #[test]
     fn test_impl_debug() {
         let cell = RefCell::new(42);
-        let _ = &cell;
-        assert_eq!(format!("{:?}", cell), "RefCell { value: 42 }");
+        let _borrow = &cell;
+        assert_eq!(format!("{:?}", cell), "RefCell { value: Ref { value: 42 } }");
     }
 
     #[test]
     fn test_impl_debug_borrowed() {
         let cell = RefCell::new(42);
-        let _ = cell.borrow_mut();
+        let _mut_borrow = cell.borrow_mut();
         assert_eq!(format!("{:?}", cell), "RefCell { value: <borrowed> }");
     }
 
@@ -237,7 +233,7 @@ mod tests {
     fn test_transition_from_readers_to_writers() {
         let cell = RefCell::new(42);
         {
-            let _ = cell.borrow();
+            let _scoped_borrow = cell.borrow();
         }
 
         assert!(cell.try_borrow_mut().is_ok());
@@ -247,7 +243,7 @@ mod tests {
     fn test_transition_from_writers_to_readers() {
         let cell = RefCell::new(42);
         {
-            let _ = cell.borrow_mut();
+            let _scoped_mut_borrow = cell.borrow_mut();
         }
 
         assert!(cell.try_borrow().is_ok());
